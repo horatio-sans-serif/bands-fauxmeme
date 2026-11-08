@@ -1,0 +1,9 @@
+{
+  "dimension": "behavior",
+  "title": "Does it work as an instrument?",
+  "criteria": [
+    { "id": "coverage", "claim": "Every slot on the recording list has a saved take that re-measures cleanly.", "metric": "library.coverage", "judge": "numeric", "truth": { "value": 1, "tolerance": 0 }, "source": "instrument/phonemes.json (79 slots)", "weight": 2 },
+    { "id": "real-voice", "claim": "No take in the library is synthetic seed data.", "metric": "library.synthetic", "judge": "numeric", "truth": { "value": 0, "tolerance": 0 }, "source": "seed.mjs marks its takes synthetic", "weight": 1 },
+    { "id": "latency", "claim": "Key press to sound is fast enough to play in time.", "metric": "library.latencyMs", "judge": "numeric", "truth": { "max": 20, "tolerance": 10 }, "source": "AudioContext baseLatency + outputLatency, posted by the page; 20 ms is a common playability limit for keyboard players", "weight": 1 }
+  ]
+}

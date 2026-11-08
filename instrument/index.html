@@ -1,0 +1,583 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fauxmeme instrument</title>
+<style>
+:root {
+  --bg: #fbfbfa; --fg: #1c1c1c; --muted: #6d6d6a; --line: #e1e1dd; --soft: #f0f0ec;
+  --accent: #2f5bc8; --bad: #b0281f; --good: #2d7a33;
+  --sans: system-ui, -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #141414; --fg: #e8e8e4; --muted: #9a9a95; --line: #2c2c2a; --soft: #1e1e1d;
+          --accent: #7f9ff0; --bad: #ef7d73; --good: #7cc583; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 var(--sans); }
+.wrap { max-width: 920px; margin: 0 auto; padding: 20px 16px 120px; }
+header { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: baseline; border-bottom: 1px solid var(--line); padding-bottom: 10px; }
+header h1 { font-size: 17px; margin: 0; font-weight: 600; }
+.mode { font-weight: 600; color: var(--accent); }
+.status { color: var(--muted); font-size: 13px; margin-left: auto; }
+nav { display: flex; gap: 18px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+nav span { color: var(--muted); }
+nav span.on { color: var(--fg); font-weight: 600; text-decoration: underline; text-underline-offset: 5px; }
+.question { font-size: 18px; margin: 18px 0 14px; }
+.code, kbd, .note { font-family: var(--mono); }
+kbd { font-size: 12px; border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; }
+.muted { color: var(--muted); }
+.bad { color: var(--bad); }
+.good { color: var(--good); }
+.cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 28px; }
+@media (max-width: 700px) { .cols { grid-template-columns: 1fr; } }
+.rows { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+.rows li { display: flex; gap: 12px; padding: 5px 8px; border-bottom: 1px solid var(--line); }
+.rows li.sel { background: var(--soft); box-shadow: inset 3px 0 0 var(--accent); }
+.rows .grow { flex: 1; min-width: 0; }
+.big { font-size: 34px; font-family: var(--mono); line-height: 1.1; }
+.meter { height: 6px; background: var(--soft); margin: 10px 0; }
+.meter i { display: block; height: 100%; width: 0; background: var(--accent); }
+table.m { border-collapse: collapse; margin-top: 8px; }
+table.m td { padding: 3px 14px 3px 0; border-bottom: 1px solid var(--line); }
+.pads { display: grid; grid-template-columns: repeat(4, 64px); gap: 6px; margin-top: 8px; }
+.pads div { height: 48px; border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; font-family: var(--mono); }
+.pads div.hit { background: var(--accent); color: var(--bg); }
+.pads div.sel { outline: 2px solid var(--accent); outline-offset: -2px; }
+.wheel { font-family: var(--mono); display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.wheel span.on { color: var(--accent); font-weight: 700; text-decoration: underline; }
+.sylls { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; font-family: var(--mono); font-size: 22px; }
+.sylls span { padding: 2px 8px; border-bottom: 2px solid transparent; }
+.sylls span.next { border-bottom-color: var(--accent); }
+input.word { font: 22px var(--mono); width: 100%; padding: 6px 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
+input.word:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+footer { position: fixed; left: 0; right: 0; bottom: 0; background: var(--bg); border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+footer .wrap { padding: 8px 16px; }
+.section { margin-top: 18px; }
+.section h2 { font-size: 13px; font-weight: 600; color: var(--muted); margin: 0 0 4px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Fauxmeme</h1>
+    <span class="mode" id="mode"></span>
+    <span class="status" id="status"></span>
+  </header>
+  <nav id="nav"></nav>
+  <p class="question" id="question"></p>
+  <main id="view"></main>
+</div>
+<footer><div class="wrap" id="keys"></div></footer>
+
+<script type="module">
+import { analyzeNote, analyzeHit, bakeLoop, decodeWav, encodeWav, midiToHz, nearestTake, noteName, parseWord, syllableText } from './dsp.mjs';
+
+const TOL = { spreadCents: 15, seamDb: -10 };
+const MODES = [
+  { id: 'record', key: '1', label: 'Record', q: 'Which sounds still need your voice?' },
+  { id: 'kit', key: '2', label: 'Kit', q: 'What does your voice sound like as an instrument?' },
+  { id: 'word', key: '3', label: 'Word', q: 'What does your made-up word sound like sung?' },
+  { id: 'setup', key: '4', label: 'Setup', q: 'Which sound is on which pad, and where does your voice sit?' },
+];
+// Computer keyboard as a piano (C3 upward) and as ten pads.
+const PIANO = "awsedftgyhujkolp;'";
+const PADKEYS = 'zxcvbnm,./';
+
+const book = await (await fetch('phonemes.json')).json();
+const byCode = Object.fromEntries(book.phonemes.map(p => [p.code, p]));
+const NOTES = book.phonemes.filter(p => p.kind === 'note');
+const HITS = book.phonemes.filter(p => p.kind === 'hit');
+
+const S = {
+  mode: 'record', keysPlay: false, editingWord: false, learn: false,
+  settings: { pads: [...book.defaultPads], padChannel: 9, padBase: 36, midNote: 48, word: 'kaa lu mi nos' },
+  staged: null, lib: {}, buffers: {}, slots: [], sel: { record: 0, setup: 0 },
+  take: null, recState: '', wheel: NOTES.findIndex(p => p.code === 'aa'), bend: 0, wordPos: 0,
+  voices: new Map(), midiName: 'MIDI not started', latencyMs: null, missing: new Set(), flash: -1,
+};
+
+const ctx = new AudioContext({ latencyHint: 'interactive' });
+const master = ctx.createGain(); master.gain.value = 0.8;
+const limiter = ctx.createDynamicsCompressor();
+limiter.threshold.value = -6; limiter.ratio.value = 12;
+master.connect(limiter).connect(ctx.destination);
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// ---------- library ----------
+
+function buildSlots() {
+  const mid = S.settings.midNote;
+  S.slots = [
+    ...NOTES.flatMap(p => [['low', mid - 5], ['mid', mid], ['high', mid + 5]].map(([slot, target]) => ({ id: `${p.code}@${slot}`, p, slot, target }))),
+    ...HITS.map(p => ({ id: `${p.code}@hit`, p, slot: 'hit', target: null })),
+  ];
+}
+
+function toBuffer(meta, samples) {
+  const data = meta.kind === 'note' ? bakeLoop(samples, meta.loopStart, meta.loopEnd, meta.xf) : samples;
+  const b = ctx.createBuffer(1, data.length, meta.rate);
+  b.copyToChannel(data, 0);
+  return b;
+}
+
+async function loadLibrary() {
+  const [lib, settings] = await Promise.all([fetch('api/library').then(r => r.json()), fetch('api/settings').then(r => r.json())]);
+  S.settings = { ...S.settings, ...settings };
+  S.lib = lib.takes || {};
+  buildSlots();
+  await Promise.all(Object.values(S.lib).map(async meta => {
+    const { samples } = decodeWav(await (await fetch(`takes/${meta.id}.wav`)).arrayBuffer());
+    S.buffers[meta.id] = toBuffer(meta, samples);
+  }));
+  const first = S.slots.findIndex(s => !S.lib[s.id]);
+  S.sel.record = first >= 0 ? first : 0;
+}
+
+const saveSettings = () => fetch('api/settings', { method: 'PUT', body: JSON.stringify(S.settings) });
+
+// ---------- playing ----------
+
+const level = vel => (vel / 127) ** 1.5;
+
+function measureLatency() {
+  const ms = Math.round(((ctx.baseLatency || 0) + (ctx.outputLatency || 0)) * 1000);
+  if (ms && ms !== S.latencyMs) {
+    S.latencyMs = ms;
+    fetch('api/metrics', { method: 'POST', body: JSON.stringify({ latencyMs: ms, sampleRate: ctx.sampleRate }) });
+    renderStatus();
+  }
+}
+
+function playNote(code, midi, vel, when, attack = 0.015) {
+  const takes = ['low', 'mid', 'high'].map(s => S.lib[`${code}@${s}`]).filter(t => t && S.buffers[t.id]);
+  const t = nearestTake(takes, midi);
+  if (!t) { S.missing.add(code); return null; }
+  const src = ctx.createBufferSource(), g = ctx.createGain();
+  src.buffer = S.buffers[t.id];
+  src.loop = true; src.loopStart = t.loopStart / t.rate; src.loopEnd = t.loopEnd / t.rate;
+  src.playbackRate.value = 2 ** ((midi + S.bend - t.midi) / 12);
+  g.gain.setValueAtTime(0, when);
+  g.gain.linearRampToValueAtTime(level(vel), when + attack);
+  src.connect(g).connect(master);
+  src.start(when, t.start / t.rate);
+  setTimeout(measureLatency, 200);
+  return { src, g, take: t, midi, vel, code };
+}
+
+function stopVoice(v, when = ctx.currentTime, tc = 0.02) {
+  if (!v) return;
+  v.g.gain.cancelScheduledValues(when);
+  v.g.gain.setTargetAtTime(0, when, tc);
+  v.src.stop(when + tc * 8);
+}
+
+function playHit(code, vel, when) {
+  const t = S.lib[`${code}@hit`];
+  if (!t || !S.buffers[t.id]) { S.missing.add(code); return 0.05; }
+  const src = ctx.createBufferSource(), g = ctx.createGain();
+  src.buffer = S.buffers[t.id];
+  g.gain.value = level(vel);
+  src.connect(g).connect(master);
+  const dur = (t.end - t.start) / t.rate;
+  src.start(when, t.start / t.rate, dur);
+  setTimeout(measureLatency, 200);
+  return dur;
+}
+
+const kitCode = () => NOTES[S.wheel].code;
+
+function syllables() { return parseWord(S.settings.word, book.phonemes, book.aliases).syllables; }
+
+function noteOn(src, note, vel) {
+  if (ctx.state !== 'running') ctx.resume();
+  const now = ctx.currentTime + 0.003, key = `${src}:${note}`;
+  const { padChannel, padBase, pads } = S.settings;
+  if ((src === padChannel && note >= padBase && note < padBase + 16) || src === 'pad') {
+    const i = src === 'pad' ? note : note - padBase;
+    if (pads[i]) playHit(pads[i], vel, now);
+    S.flash = i; renderView(); setTimeout(() => { if (S.flash === i) { S.flash = -1; renderView(); } }, 120);
+    return;
+  }
+  stopHeld(key);
+  if (S.mode !== 'word') { S.voices.set(key, { nucleus: playNote(kitCode(), note, vel, now), coda: [], midi: note, vel }); renderView(); return; }
+  const syls = syllables();
+  if (!syls.length) return;
+  const syl = syls[S.wordPos % syls.length];
+  S.wordPos = (S.wordPos + 1) % syls.length;
+  let t = now;
+  for (const c of syl.onset) {
+    if (byCode[c].kind === 'hit') t += Math.min(playHit(c, vel, t), 0.09);
+    else { stopVoice(playNote(c, note, vel, t, 0.008), t + 0.08); t += 0.07; }
+  }
+  S.voices.set(key, { nucleus: syl.nucleus ? playNote(syl.nucleus, note, vel, t) : null, coda: syl.coda, midi: note, vel });
+  renderView();
+}
+
+function stopHeld(key) {
+  const v = S.voices.get(key);
+  if (!v) return;
+  S.voices.delete(key);
+  const now = ctx.currentTime;
+  stopVoice(v.nucleus, now);
+  let t = now + 0.03;
+  for (const c of v.coda) {
+    if (byCode[c].kind === 'hit') t += Math.min(playHit(c, v.vel, t), 0.09);
+    else { stopVoice(playNote(c, v.midi, v.vel, t, 0.008), t + 0.1); t += 0.1; }
+  }
+}
+
+function noteOff(src, note) { stopHeld(`${src}:${note}`); renderView(); }
+function allNotesOff() { for (const k of [...S.voices.keys()]) stopHeld(k); }
+
+// Kit mode: a new vowel crossfades every held note into it at the same pitch.
+function setWheel(i) {
+  i = Math.max(0, Math.min(NOTES.length - 1, i));
+  if (i === S.wheel) return;
+  S.wheel = i;
+  if (S.mode !== 'word') {
+    const now = ctx.currentTime;
+    for (const v of S.voices.values()) { stopVoice(v.nucleus, now, 0.012); v.nucleus = playNote(kitCode(), v.midi, v.vel, now, 0.03); }
+  }
+  renderView();
+}
+
+function setBend(semis) {
+  S.bend = semis;
+  for (const v of S.voices.values()) if (v.nucleus) v.nucleus.src.playbackRate.setTargetAtTime(2 ** ((v.midi + semis - v.nucleus.take.midi) / 12), ctx.currentTime, 0.01);
+}
+
+// ---------- MIDI ----------
+
+async function initMidi() {
+  if (!navigator.requestMIDIAccess) { S.midiName = 'no Web MIDI in this browser (use Chrome)'; return renderStatus(); }
+  try {
+    const access = await navigator.requestMIDIAccess();
+    const bind = () => {
+      const names = [];
+      for (const input of access.inputs.values()) { input.onmidimessage = e => onMidi(e.data); names.push(input.name); }
+      S.midiName = names.length ? names.join(', ') : 'no MIDI device connected';
+      renderStatus();
+    };
+    access.onstatechange = bind;
+    bind();
+  } catch (e) { S.midiName = `MIDI blocked: ${e.message}`; renderStatus(); }
+}
+
+function onMidi([st, d1, d2]) {
+  const type = st & 0xf0, ch = st & 0x0f;
+  if (S.learn) {
+    if (type === 0x90 && d2 > 0) { S.staged.padChannel = ch; S.staged.padBase = d1; S.learn = false; render(); }
+    return;
+  }
+  if (type === 0x90 && d2 > 0) noteOn(ch, d1, d2);
+  else if (type === 0x80 || type === 0x90) noteOff(ch, d1);
+  else if (type === 0xb0 && d1 === 1) setWheel(Math.round(d2 / 127 * (NOTES.length - 1)));
+  else if (type === 0xb0 && (d1 === 120 || d1 === 123)) allNotesOff();
+  else if (type === 0xe0) setBend((((d2 << 7) | d1) - 8192) / 8192 * 2);
+}
+
+// ---------- recording ----------
+
+const CAPTURE = `class Cap extends AudioWorkletProcessor {
+  process(inputs) { const c = inputs[0] && inputs[0][0]; if (c) this.port.postMessage(c.slice(0)); return true; }
+}
+registerProcessor('cap', Cap);`;
+
+async function ensureMic() {
+  if (S.cap) return;
+  // Echo cancellation, noise suppression and auto gain all reshape a held vowel. Turn them off.
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 } });
+  await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([CAPTURE], { type: 'text/javascript' })));
+  const node = new AudioWorkletNode(ctx, 'cap'), sink = ctx.createGain();
+  sink.gain.value = 0;
+  ctx.createMediaStreamSource(stream).connect(node).connect(sink).connect(ctx.destination);
+  S.cap = { want: 0, got: 0, chunks: [], done: null };
+  node.port.onmessage = e => {
+    const c = S.cap;
+    if (!c.want) return;
+    c.chunks.push(e.data); c.got += e.data.length;
+    let peak = 0; for (const s of e.data) peak = Math.max(peak, Math.abs(s));
+    const bar = document.querySelector('.meter i'); if (bar) bar.style.width = Math.min(100, peak * 100) + '%';
+    if (c.got >= c.want) {
+      const out = new Float32Array(c.want); let o = 0;
+      for (const ch of c.chunks) { out.set(ch.subarray(0, Math.min(ch.length, c.want - o)), o); o += ch.length; if (o >= c.want) break; }
+      c.want = 0; c.done(out);
+    }
+  };
+}
+
+const capture = sec => new Promise(done => Object.assign(S.cap, { want: Math.round(sec * ctx.sampleRate), got: 0, chunks: [], done }));
+
+function tone(midi, sec) {
+  const now = ctx.currentTime + 0.02, g = ctx.createGain();
+  g.gain.setValueAtTime(0, now); g.gain.linearRampToValueAtTime(0.25, now + 0.03); g.gain.setTargetAtTime(0, now + sec - 0.1, 0.03);
+  g.connect(master);
+  for (const [h, a] of [[1, 1], [2, 0.3], [3, 0.12]]) {
+    const o = ctx.createOscillator(), og = ctx.createGain();
+    o.frequency.value = midiToHz(midi) * h; og.gain.value = a;
+    o.connect(og).connect(g); o.start(now); o.stop(now + sec + 0.2);
+  }
+  return sleep(sec * 1000 + 50);
+}
+
+async function record() {
+  if (S.recState) return;
+  const slot = S.slots[S.sel.record];
+  if (ctx.state !== 'running') await ctx.resume();
+  try { await ensureMic(); } catch (e) { S.recState = ''; S.take = { error: `Microphone unavailable: ${e.message}` }; return render(); }
+  S.take = null; S.recState = 'listen'; render();
+  if (slot.p.kind === 'note') await tone(slot.target, 1.0); else await tone(S.settings.midNote + 24, 0.08);
+  await sleep(200);
+  S.recState = 'recording'; render();
+  const samples = await capture(slot.p.kind === 'note' ? 3.2 : 1.6);
+  S.recState = 'measuring'; render();
+  await sleep(10);
+  const a = slot.p.kind === 'note' ? analyzeNote(samples, ctx.sampleRate, { targetMidi: slot.target }) : analyzeHit(samples, ctx.sampleRate);
+  const meta = { ...a, id: slot.id, phoneme: slot.p.code, slot: slot.slot, kind: slot.p.kind, targetMidi: slot.target, rate: ctx.sampleRate };
+  S.take = { id: slot.id, samples, meta, buffer: a.ok ? toBuffer(meta, samples) : null };
+  S.recState = ''; render();
+  if (S.take.buffer) preview(meta, S.take.buffer);
+}
+
+function preview(meta, buffer) {
+  if (ctx.state !== 'running') ctx.resume();
+  const src = ctx.createBufferSource(), g = ctx.createGain(), now = ctx.currentTime + 0.01;
+  src.buffer = buffer; src.connect(g).connect(master);
+  if (meta.kind === 'note') {
+    src.loop = true; src.loopStart = meta.loopStart / meta.rate; src.loopEnd = meta.loopEnd / meta.rate;
+    g.gain.setValueAtTime(0.9, now); g.gain.setTargetAtTime(0, now + 1.8, 0.04);
+    src.start(now, meta.start / meta.rate); src.stop(now + 2.2);
+  } else src.start(now, meta.start / meta.rate, (meta.end - meta.start) / meta.rate);
+}
+
+async function saveTake() {
+  const t = S.take;
+  if (!t || !t.meta?.ok) return;
+  const res = await fetch(`api/take/${encodeURIComponent(t.id)}`, {
+    method: 'PUT', body: encodeWav(t.samples, t.meta.rate),
+    headers: { 'content-type': 'audio/wav', 'x-take-meta': encodeURIComponent(JSON.stringify(t.meta)) },
+  });
+  if (!res.ok) { t.error = `Save failed: ${(await res.json()).error}`; return render(); }
+  S.lib[t.id] = await res.json(); S.buffers[t.id] = t.buffer; S.missing.delete(t.meta.phoneme);
+  S.take = null;
+  const next = S.slots.findIndex((s, i) => i > S.sel.record && !S.lib[s.id]);
+  if (next >= 0) S.sel.record = next;
+  render();
+}
+
+// ---------- views ----------
+
+function renderStatus() {
+  const m = MODES.find(m => m.id === S.mode);
+  const extra = S.editingWord ? ' · typing the word' : S.keysPlay ? ' · computer keyboard plays notes' : S.learn ? ' · learning pads: hit your first pad' : '';
+  $('mode').textContent = m.label.toUpperCase() + extra;
+  $('status').textContent = `${S.midiName}${S.latencyMs ? ` · audio latency ${S.latencyMs} ms` : ''}`;
+}
+
+const instruction = slot => slot.p.kind === 'note'
+  ? `Sing “${slot.p.code}” as in “${slot.p.as}” on the note you hear (${noteName(slot.target)}), and hold it steady for 3 seconds.${slot.p.glide ? ' It moves: sing the whole sound, then hold its end.' : ''}`
+  : `Say “${slot.p.code}” as in “${slot.p.as}” once, after the click.${['s', 'sh', 'f', 'th', 'h', 'z', 'zh', 'v', 'dh'].includes(slot.p.code) ? ' Hold it for about a second.' : ' Short and clear.'}`;
+
+const slotLabel = s => s.slot === 'hit' ? 'spoken' : `${s.slot} ${noteName(s.target)}`;
+
+function viewRecord() {
+  const done = S.slots.filter(s => S.lib[s.id]).length;
+  const i0 = Math.max(0, Math.min(S.slots.length - 9, S.sel.record - 4));
+  const rows = S.slots.slice(i0, i0 + 9).map((s, k) => `<li class="${i0 + k === S.sel.record ? 'sel' : ''}">
+      <span class="code">${esc(s.p.code)}</span><span class="grow">as in ${esc(s.p.as)} <span class="muted">· ${slotLabel(s)}</span></span>
+      <span class="${S.lib[s.id] ? 'good' : 'muted'}">${S.lib[s.id] ? 'recorded' : '—'}</span></li>`).join('');
+  const slot = S.slots[S.sel.record], t = S.take && S.take.id === slot.id ? S.take : null, saved = S.lib[slot.id];
+  let result = '';
+  if (S.take?.error) result = `<p class="bad">${esc(S.take.error)}</p>`;
+  else if (S.recState) result = `<p>${{ listen: slot.p.kind === 'note' ? 'Listen to the note…' : 'Get ready…', recording: 'Recording — sing now.', measuring: 'Measuring…' }[S.recState]}</p><div class="meter"><i></i></div>`;
+  else if (t) result = t.meta.ok ? `${metrics(t.meta)}<p>${saved ? 'This replaces the saved take (the old one is kept). ' : ''}<kbd>Enter</kbd> save · <kbd>Space</kbd> again · <kbd>x</kbd> discard · <kbd>p</kbd> hear it</p>` : `<p class="bad">${esc(t.meta.why)}</p>`;
+  else if (saved) result = `<h2 class="muted" style="font-size:13px;margin:12px 0 0">Saved take</h2>${metrics(saved)}`;
+  return `<p class="muted">${done} of ${S.slots.length} recorded. Middle note ${noteName(S.settings.midNote)} (change it in Setup).</p>
+    <div class="cols"><ul class="rows">${rows}</ul>
+    <div><div class="big">${esc(slot.p.code)}</div><p class="muted">${esc(slot.p.ipa)} · ${slotLabel(slot)}</p>
+    <p>${instruction(slot)}</p>${result}</div></div>`;
+}
+
+function metrics(m) {
+  if (m.kind !== 'note') return `<table class="m"><tr><td>Length</td><td class="note">${Math.round(m.lengthMs)} ms</td></tr><tr><td>Peak</td><td class="note">${m.peakDb.toFixed(1)} dB</td></tr></table>`;
+  const sp = m.spreadCents <= TOL.spreadCents, se = m.seamDb <= TOL.seamDb, off = m.offTargetCents;
+  return `<table class="m">
+    <tr><td>Pitch</td><td class="note">${noteName(m.midi)} ${off >= 0 ? '+' : ''}${Math.round(off)} cents</td><td class="muted">${Math.abs(off) > 50 ? 'off the note, still usable' : 'on the note'}</td></tr>
+    <tr><td>Steadiness</td><td class="note ${sp ? 'good' : 'bad'}">${m.spreadCents.toFixed(1)} cents</td><td class="muted">wobble while held; aim ≤ ${TOL.spreadCents}</td></tr>
+    <tr><td>Loop join</td><td class="note ${se ? 'good' : 'bad'}">${m.seamDb.toFixed(1)} dB</td><td class="muted">lower is smoother; aim ≤ ${TOL.seamDb}</td></tr>
+    <tr><td>Peak</td><td class="note ${m.peakDb > -1 ? 'bad' : ''}">${m.peakDb.toFixed(1)} dB</td><td class="muted">${m.peakDb > -1 ? 'too loud: it may have clipped' : m.peakDb < -30 ? 'quiet: move closer' : ''}</td></tr></table>`;
+}
+
+// Pad 1 is bottom-left on most pad controllers, so the grid is drawn bottom row first.
+const PAD_ORDER = [12, 13, 14, 15, 8, 9, 10, 11, 4, 5, 6, 7, 0, 1, 2, 3];
+const padCells = (pads, cls) => PAD_ORDER.map(i => `<div class="${cls(i)}">${esc(pads[i] || '·')}</div>`).join('');
+
+function padsGrid() {
+  return `<div class="pads">${padCells(S.settings.pads, i => S.flash === i ? 'hit' : '')}</div>`;
+}
+
+function missingLine() {
+  const m = [...S.missing];
+  return m.length ? `<p class="muted">Not recorded yet, so silent: <span class="code">${esc(m.slice(0, 5).join(' '))}</span>${m.length > 5 ? ` and ${m.length - 5} more` : ''}.</p>` : '';
+}
+
+function held() {
+  const v = [...S.voices.values()];
+  return v.length ? v.map(x => `${noteName(x.midi)} ${x.nucleus ? x.nucleus.code : ''}`).join(', ') : 'nothing';
+}
+
+function viewKit() {
+  return `<div class="cols"><div>
+      <div class="section"><h2>Keys sing</h2><div class="big">${esc(kitCode())}</div><p class="muted">as in ${esc(NOTES[S.wheel].as)}. Holding: <span class="note">${esc(held())}</span></p></div>
+      <div class="section"><h2>Mod wheel order</h2><div class="wheel">${NOTES.map((p, i) => `<span class="${i === S.wheel ? 'on' : ''}">${esc(p.code)}</span>`).join('')}</div></div>
+    </div><div class="section"><h2>Pads speak</h2>${padsGrid()}</div></div>${missingLine()}`;
+}
+
+function viewWord() {
+  const { syllables: syls, unknown } = parseWord(S.settings.word, book.phonemes, book.aliases);
+  return `<input class="word" id="word" value="${esc(S.settings.word)}" ${S.editingWord ? '' : 'readonly'} spellcheck="false" autocomplete="off">
+    ${unknown.length ? `<p class="bad">Not a sound: <span class="code">${esc([...new Set(unknown)].join(' '))}</span> — those letters are skipped.</p>` : ''}
+    <div class="sylls">${syls.map((s, i) => `<span class="${i === S.wordPos % Math.max(1, syls.length) ? 'next' : ''}">${esc(syllableText(s))}</span>`).join('')}</div>
+    <p class="muted">Each key you press sings the next syllable at that key's pitch. Consonants before a vowel play as you press; consonants after it play as you let go. Spaces split syllables.</p>
+    ${missingLine()}`;
+}
+
+const SETUP_ROWS = () => [
+  { label: 'Middle note of your voice', value: s => noteName(s.midNote), step: (s, d) => { s.midNote = Math.max(24, Math.min(84, s.midNote + d)); } },
+  { label: 'Pad MIDI channel', value: s => String(s.padChannel + 1), step: (s, d) => { s.padChannel = (s.padChannel + d + 16) % 16; } },
+  { label: 'First pad note', value: s => `${s.padBase} (${noteName(s.padBase)})`, step: (s, d) => { s.padBase = Math.max(0, Math.min(112, s.padBase + d)); } },
+  ...S.settings.pads.map((_, i) => ({
+    label: `Pad ${i + 1}`, value: s => s.pads[i] || '·',
+    step: (s, d) => { const list = ['', ...HITS.map(h => h.code)]; s.pads[i] = list[(list.indexOf(s.pads[i] || '') + d + list.length) % list.length]; },
+  })),
+];
+
+function viewSetup() {
+  const s = S.staged || S.settings, rows = SETUP_ROWS();
+  const changed = S.staged && JSON.stringify(S.staged) !== JSON.stringify(S.settings);
+  return `<p class="${changed ? '' : 'muted'}">${changed ? 'Changed, not saved. <kbd>Enter</kbd> save · <kbd>Esc</kbd> discard.' : 'No unsaved changes.'}</p>
+    <ul class="rows">${rows.slice(0, 3).map((r, i) => `<li class="${i === S.sel.setup ? 'sel' : ''}"><span class="grow">${r.label}</span><span class="note">${esc(r.value(s))}</span></li>`).join('')}</ul>
+    <div class="section"><h2>Pads, bottom-left first</h2><div class="pads">${padCells(s.pads, i => i + 3 === S.sel.setup ? 'sel' : '')}</div></div>
+    <p class="muted">Recorded notes are sung 5 semitones below, at, and 5 above the middle note. Changing it only affects takes you record after. To learn the pads, press <kbd>b</kbd> and hit your bottom-left pad.</p>`;
+}
+
+const KEYS = {
+  record: '<kbd>j</kbd>/<kbd>k</kbd> move · <kbd>Space</kbd> record · <kbd>Enter</kbd> save take · <kbd>x</kbd> discard · <kbd>p</kbd> hear · <kbd>n</kbd> next empty',
+  kit: '<kbd>j</kbd>/<kbd>k</kbd> or mod wheel: change sound · <kbd>`</kbd> play with the computer keyboard',
+  word: '<kbd>i</kbd> edit word, then <kbd>Enter</kbd> save or <kbd>Esc</kbd> cancel · <kbd>g</kbd> back to first syllable · <kbd>`</kbd> play with the computer keyboard',
+  setup: '<kbd>j</kbd>/<kbd>k</kbd> move · <kbd>h</kbd>/<kbd>l</kbd> change · <kbd>b</kbd> learn pads · <kbd>Enter</kbd> save · <kbd>Esc</kbd> discard',
+};
+
+function renderView() {
+  $('view').innerHTML = { record: viewRecord, kit: viewKit, word: viewWord, setup: viewSetup }[S.mode]();
+  if (S.editingWord) { const w = $('word'); w.focus(); w.setSelectionRange(w.value.length, w.value.length); }
+}
+
+function render() {
+  const m = MODES.find(m => m.id === S.mode);
+  $('nav').innerHTML = MODES.map(x => `<span class="${x.id === S.mode ? 'on' : ''}"><kbd>${x.key}</kbd> ${x.label}</span>`).join('');
+  $('question').textContent = m.q;
+  $('keys').innerHTML = S.keysPlay
+    ? `Computer keyboard is a piano: <span class="code">a w s e d f t g y h u j k</span> from C3 · pads on <span class="code">z x c v b n m , . /</span> · <kbd>↑</kbd>/<kbd>↓</kbd> change sound · <kbd>Esc</kbd> stop`
+    : `${KEYS[S.mode]} · <kbd>1</kbd>–<kbd>4</kbd> switch view`;
+  renderStatus();
+  renderView();
+}
+
+// ---------- keyboard ----------
+
+function setMode(id) {
+  allNotesOff();
+  if (S.mode === 'setup' && id !== 'setup') { S.staged = null; S.learn = false; }
+  S.mode = id; S.keysPlay = false;
+  if (id === 'setup') S.staged = structuredClone(S.settings);
+  render();
+}
+
+const down = new Set();
+document.addEventListener('keyup', e => {
+  if (!down.has(e.key)) return;
+  down.delete(e.key);
+  const k = e.key.toLowerCase(), pi = PIANO.indexOf(k);
+  if (pi >= 0) noteOff('kbd', 48 + pi);
+});
+
+document.addEventListener('keydown', async e => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (ctx.state !== 'running') ctx.resume();
+  const k = e.key;
+  if (S.editingWord) {
+    if (k === 'Escape') { S.editingWord = false; render(); }
+    else if (k === 'Enter') { S.settings.word = $('word').value; S.wordPos = 0; S.editingWord = false; await saveSettings(); render(); }
+    else setTimeout(() => { const v = $('word').value; const saved = S.settings.word; S.settings.word = v; const html = viewWord(); S.settings.word = saved; const tmp = document.createElement('div'); tmp.innerHTML = html; $('view').querySelector('.sylls').replaceWith(tmp.querySelector('.sylls')); });
+    return;
+  }
+  if (S.keysPlay) {
+    e.preventDefault();
+    if (k === 'Escape' || k === '`') { S.keysPlay = false; allNotesOff(); return render(); }
+    if (k === 'ArrowUp') return setWheel(S.wheel - 1);
+    if (k === 'ArrowDown') return setWheel(S.wheel + 1);
+    if (e.repeat || down.has(k)) return;
+    const lk = k.toLowerCase(), pi = PIANO.indexOf(lk), pad = PADKEYS.indexOf(lk);
+    if (pi >= 0) { down.add(k); noteOn('kbd', 48 + pi, 100); }
+    else if (pad >= 0) noteOn('pad', pad, 110);
+    return;
+  }
+  const mode = MODES.find(m => m.key === k);
+  if (mode) return setMode(mode.id);
+  if (k === '`' && (S.mode === 'kit' || S.mode === 'word')) { S.keysPlay = true; return render(); }
+
+  if (S.mode === 'record') {
+    const n = S.slots.length;
+    if (k === 'j' || k === 'ArrowDown') { S.sel.record = Math.min(n - 1, S.sel.record + 1); S.take = null; }
+    else if (k === 'k' || k === 'ArrowUp') { S.sel.record = Math.max(0, S.sel.record - 1); S.take = null; }
+    else if (k === 'n') { const next = S.slots.findIndex((s, i) => i > S.sel.record && !S.lib[s.id]); if (next >= 0) S.sel.record = next; S.take = null; }
+    else if (k === ' ') { e.preventDefault(); return record(); }
+    else if (k === 'Enter') return saveTake();
+    else if (k === 'x') S.take = null;
+    else if (k === 'p') {
+      const slot = S.slots[S.sel.record];
+      if (S.take?.buffer && S.take.id === slot.id) preview(S.take.meta, S.take.buffer);
+      else if (S.lib[slot.id]) preview(S.lib[slot.id], S.buffers[slot.id]);
+      return;
+    } else return;
+    return render();
+  }
+  if (S.mode === 'kit') {
+    if (k === 'j' || k === 'ArrowDown') setWheel(S.wheel + 1);
+    else if (k === 'k' || k === 'ArrowUp') setWheel(S.wheel - 1);
+    return;
+  }
+  if (S.mode === 'word') {
+    if (k === 'i') { e.preventDefault(); S.editingWord = true; $('word').readOnly = false; return render(); }
+    if (k === 'g') { S.wordPos = 0; return renderView(); }
+    return;
+  }
+  if (S.mode === 'setup') {
+    const rows = SETUP_ROWS();
+    if (k === 'j' || k === 'ArrowDown') S.sel.setup = Math.min(rows.length - 1, S.sel.setup + 1);
+    else if (k === 'k' || k === 'ArrowUp') S.sel.setup = Math.max(0, S.sel.setup - 1);
+    else if (k === 'h' || k === 'ArrowLeft') rows[S.sel.setup].step(S.staged, -1);
+    else if (k === 'l' || k === 'ArrowRight') rows[S.sel.setup].step(S.staged, 1);
+    else if (k === 'b') S.learn = true;
+    else if (k === 'Enter') { S.settings = structuredClone(S.staged); S.learn = false; await saveSettings(); buildSlots(); }
+    else if (k === 'Escape') { S.staged = structuredClone(S.settings); S.learn = false; }
+    else return;
+    return render();
+  }
+});
+
+await loadLibrary();
+render();
+initMidi();
+// For the smoke test only: drive the instrument without a controller.
+window.__fm = { S, noteOn, noteOff, setWheel, setMode, ctx };
+</script>
+</body>
+</html>

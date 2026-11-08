@@ -1,0 +1,8 @@
+{
+  "dimension": "experience",
+  "title": "Does Brian want to play it?",
+  "criteria": [
+    { "id": "one-word", "claim": "A made-up word played in Word mode sounds like one word, not separate pieces.", "judge": "human", "question": "Play 'kaa lu mi nos' in Word mode. 1 = separate pieces, 5 = one sung word.", "weight": 1 },
+    { "id": "keep-playing", "claim": "Brian wants to keep playing it.", "judge": "human", "question": "After ten minutes of playing: 1 = done with it, 5 = want more.", "weight": 2 }
+  ]
+}

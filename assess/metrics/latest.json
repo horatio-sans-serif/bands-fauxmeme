@@ -1,0 +1,22 @@
+{
+  "at": "2026-10-20T04:42:58.689Z",
+  "commit": "no-git",
+  "values": {
+    "library": {
+      "listed": 79,
+      "recorded": 0,
+      "coverage": 0,
+      "synthetic": 0,
+      "failed": [],
+      "notes": {
+        "count": 0,
+        "medianSpreadCents": null,
+        "worstSpread": null,
+        "medianSeamDb": null,
+        "worstSeam": null
+      },
+      "latencyMs": null
+    }
+  },
+  "errors": {}
+}

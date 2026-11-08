@@ -1,0 +1,5 @@
+{
+  "decision": "Is a voice-of-Brian phoneme instrument something he will play?",
+  "collect": [{ "name": "library", "cmd": "node instrument/collect.mjs --data instrument/data", "timeoutSec": 120 }],
+  "judge": { "model": "deepseek-flash", "maxCalls": 0 }
+}

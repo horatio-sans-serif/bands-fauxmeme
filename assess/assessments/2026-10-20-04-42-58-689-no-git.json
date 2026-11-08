@@ -1,0 +1,104 @@
+{
+  "at": "2026-10-20T04:42:58.689Z",
+  "commit": "no-git",
+  "decision": "Is a voice-of-Brian phoneme instrument something he will play?",
+  "dimensions": [
+    {
+      "dimension": "behavior",
+      "title": "Does it work as an instrument?",
+      "results": [
+        {
+          "id": "coverage",
+          "claim": "Every slot on the recording list has a saved take that re-measures cleanly.",
+          "judge": "numeric",
+          "weight": 2,
+          "source": "instrument/phonemes.json (79 slots)",
+          "status": "fail",
+          "score": 0,
+          "value": 0,
+          "band": [
+            1,
+            1
+          ]
+        },
+        {
+          "id": "real-voice",
+          "claim": "No take in the library is synthetic seed data.",
+          "judge": "numeric",
+          "weight": 1,
+          "source": "seed.mjs marks its takes synthetic",
+          "status": "pass",
+          "score": 1,
+          "value": 0,
+          "band": [
+            0,
+            0
+          ]
+        },
+        {
+          "id": "latency",
+          "claim": "Key press to sound is fast enough to play in time.",
+          "judge": "numeric",
+          "weight": 1,
+          "source": "AudioContext baseLatency + outputLatency, posted by the page; 20 ms is a common playability limit for keyboard players",
+          "status": "unmeasured",
+          "why": "no value for library.latencyMs"
+        }
+      ],
+      "score": 0.3333333333333333,
+      "coverage": 0.75
+    },
+    {
+      "dimension": "experience",
+      "title": "Does Brian want to play it?",
+      "results": [
+        {
+          "id": "one-word",
+          "claim": "A made-up word played in Word mode sounds like one word, not separate pieces.",
+          "judge": "human",
+          "weight": 1,
+          "status": "needs-rating",
+          "why": "Play 'kaa lu mi nos' in Word mode. 1 = separate pieces, 5 = one sung word."
+        },
+        {
+          "id": "keep-playing",
+          "claim": "Brian wants to keep playing it.",
+          "judge": "human",
+          "weight": 2,
+          "status": "needs-rating",
+          "why": "After ten minutes of playing: 1 = done with it, 5 = want more."
+        }
+      ],
+      "score": null,
+      "coverage": 0
+    },
+    {
+      "dimension": "representation",
+      "title": "Are the recorded sounds clean enough to hold?",
+      "results": [
+        {
+          "id": "pitch-steady",
+          "claim": "Held sounds stay on pitch in the looped stretch.",
+          "judge": "numeric",
+          "weight": 1,
+          "source": "Starting tolerance, set 2026-10-20; re-check against Brian's ear",
+          "status": "unmeasured",
+          "why": "no value for library.notes.medianSpreadCents"
+        },
+        {
+          "id": "loop-join",
+          "claim": "The two stretches a loop crossfades are alike, so the loop has no audible wobble.",
+          "judge": "numeric",
+          "weight": 1,
+          "source": "-10 dB ≈ correlation 0.95 between the crossfaded stretches; starting tolerance, re-check by ear",
+          "status": "unmeasured",
+          "why": "no value for library.notes.medianSeamDb"
+        }
+      ],
+      "score": null,
+      "coverage": 0
+    }
+  ],
+  "next": "Fix \"coverage\" (behavior): Every slot on the recording list has a saved take that re-measures cleanly.",
+  "collectorErrors": {}
+}

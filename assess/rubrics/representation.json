@@ -1,0 +1,8 @@
+{
+  "dimension": "representation",
+  "title": "Are the recorded sounds clean enough to hold?",
+  "criteria": [
+    { "id": "pitch-steady", "claim": "Held sounds stay on pitch in the looped stretch.", "metric": "library.notes.medianSpreadCents", "judge": "numeric", "truth": { "max": 15, "tolerance": 15 }, "source": "Starting tolerance, set 2026-10-20; re-check against Brian's ear", "weight": 1 },
+    { "id": "loop-join", "claim": "The two stretches a loop crossfades are alike, so the loop has no audible wobble.", "metric": "library.notes.medianSeamDb", "judge": "numeric", "truth": { "max": -10, "tolerance": 10 }, "source": "-10 dB ≈ correlation 0.95 between the crossfaded stretches; starting tolerance, re-check by ear", "weight": 1 }
+  ]
+}
